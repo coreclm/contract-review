@@ -12,6 +12,8 @@ from random import randint
 import multiprocessing
 import re
 from fuzzywuzzy import fuzz
+import pandas as pd
+import unidecode
 
 st.set_page_config(layout="wide")
 
@@ -139,9 +141,11 @@ if uploaded_file is not None:
 	else:
 		print("not a right format")
 	
-		
-with st.expander("Expand the contract document"):
-	st.write(contract)
+try:		
+	with st.expander("Expand the contract document"):
+		st.write(contract)
+except:
+	st.write("oops! looks like there is some issue while showing the contract!\n Don't worry the prediction will still work")
 #contract = contracts[0]
 
 st.header("Contract Review (Beta)")
@@ -155,6 +159,7 @@ def display_func(option):
 	
 
 #selected_question = st.selectbox('Choose one of the 41 queries from the CUAD dataset:', questions)
+selected_questions = []
 selected_questions = st.multiselect('Select clause type(s) to search and review (can make multiple selections):', questions, format_func=display_func, key="multiselect")
 #question_set = [questions[0], selected_question]
 
@@ -179,96 +184,137 @@ if Stop_button:
 
 #st.write(st.session_state['boolean'])
 #st.write(st.session_state['selected'])
-if Run_Button == True and not len(contract)==0 and st.session_state.boolean == False:
+
+# large-v2 indexed data
+#indexed_data = pd.read_pickle("index.pickle")
+
+# base mode indexing
+indexed_data = pd.read_pickle("indexed_data9.pickle")
+page_index = pd.read_pickle("all_pages.pickle")
+
+indexed_falg = 0
+if Run_Button == True and not len(contract)==0 and st.session_state.boolean == False and len(selected_questions) != 0:
 #	for question in selected_questions:
 	question_set = selected_questions
 	with st.spinner('Running predictions...'):
 		if st.session_state.boolean == False:
-			try:
-				data = {'question':question_set, 'contract': contract}
-				res = requests.post(f"https://a565-34-150-211-191.ngrok.io/predict", json=data)
-				data = res.json()
-				for key,val in data.items():
-					st.write(key)
-					st.write(data['detail'])
-				predictions = data['prediction']
-			except:
+			if indexed_data.get(uploaded_file.name) is not None:
+				indexed_flag = 1
+				indexed_pred = indexed_data[uploaded_file.name]
+				indexed_page = page_index[uploaded_file.name]
+				i = 0
+				for ques in question_set:
+					try:
+								
+						ans = str(indexed_pred[ques])
+						ans = unidecode.unidecode(ans)
+						#ans = ans.replace("\xa0 ", " ")
+# 						ans = ans.replace("\\xe2\\x80\\x99", "'")
+# 						ans = ans.replace("\\xc2\\xa0", " ")
+# 						ans = ans.replace("\\xe2\\x80\\x9d", " ")
+# 						ans = ans.replace("\\xe2\\x80\\x9c", " ").replace("\\xcd\\xbe", " ")
+						if "Document Name" in ques:
+							page = 1
+						else:
+							page = indexed_page[ques]
+# 						if 'AimmuneTherapeuticsInc' in uploaded_file.name:
+# 							if 'Document Name' in ques:
+# 								ans = ' '.join(ans.split(' ')[1:])
+						if len(ans) != 0:
+							st.write(str(i+1)+".\t"+f"Question: {ques}\n\n\tAnswer: {ans}"+" (page number: "+str(page)+")\n\n ")
+						else:
+							st.write(str(i + 1) + ".\t" + f"Question: {ques}\n\n\tAnswer: Couldn't find the answer\n\n")
+					except:
+						st.write(str(i + 1) + ".\t" + f"Question: {ques}\n\n\tAnswer: Couldn't find the answer\n\n")
+					i += 1
+					
+			
+			else:
+				try:
+					data = {'question':question_set, 'contract': contract}
+					res = requests.post(f"https://a565-34-150-211-191.ngrok.io/predict", json=data)
+					data = res.json()
+					for key,val in data.items():
+						st.write(key)
+						st.write(data['detail'])
+					predictions = data['prediction']
+				except:
 
-# 				for key,val in data.items():
-# 					st.write(key)
-				predictions = run_prediction(question_set, contract, model, tokenizer)
+	# 				for key,val in data.items():
+	# 					st.write(key)
+					predictions = run_prediction(question_set, contract, model, tokenizer)
 		else:
 			st.write("Stopping the function")
 			predictions = ""
-	if type(predictions) != str:
-		for i, p in enumerate(predictions):
-			#if i != 0: st.write(f"Question: {question_set[int(p)]}\n\nAnswer: {predictions[p]}\n\n")
-# 			answer = predictions[p].split(' ')
-# 			c = 5
-# 			k = 0
-# 			ans_data = ''
-# 			final = []
-# 			for each in answer:
-# 				if k%c == 0:
-# 					if ans_data != '':
-# 						final.append(ans_data)
-# 						ans_data = ''
-# 				else:
-# 					ans_data = ans_data+' '+each
-# 				k += 1
-# 				#print(final)
-			
-# 			answer = '\n'.join(final)
-			page = -1
-			val = -1
-			final_pred = ''
-			if len(predictions[p]) != 0:
-				pg_finder = {}
-				all_ratio = []
-				for j in range(0, len(contract), len(predictions[p])):
-					matcher = contract[j:j+len(predictions[p])]
-					ratio = fuzz.ratio(matcher, predictions[p])
-					#st.write(ratio, j)
-					pg_finder[ratio] = j
-					all_ratio.append(ratio)
+	if indexed_flag == 0:
+		if type(predictions) != str:
+			for i, p in enumerate(predictions):
+				#if i != 0: st.write(f"Question: {question_set[int(p)]}\n\nAnswer: {predictions[p]}\n\n")
+	# 			answer = predictions[p].split(' ')
+	# 			c = 5
+	# 			k = 0
+	# 			ans_data = ''
+	# 			final = []
+	# 			for each in answer:
+	# 				if k%c == 0:
+	# 					if ans_data != '':
+	# 						final.append(ans_data)
+	# 						ans_data = ''
+	# 				else:
+	# 					ans_data = ans_data+' '+each
+	# 				k += 1
+	# 				#print(final)
 
-				max_ratio = max(all_ratio)
-				val = pg_finder[max_ratio]
-				k = val
-				#st.write(contract[val:val+5])
-				if contract[val-1] != '.' and contract[val] != '.':
-					while True:
-						if contract[k] == '.':
-							break
-						else:
-							k -= 1
-					k += 1
-				e = val + len(predictions[p])
-				if contract[val+len(predictions[p])] != '.' and contract[val+len(predictions[p])+1] != '.':
-					while True:
-						if contract[e] == '.':
-							break
-						e += 1
+	# 			answer = '\n'.join(final)
+				page = -1
+				val = -1
+				final_pred = ''
+				if len(predictions[p]) != 0:
+					pg_finder = {}
+					all_ratio = []
+					for j in range(0, len(contract), len(predictions[p])):
+						matcher = contract[j:j+len(predictions[p])]
+						ratio = fuzz.ratio(matcher, predictions[p])
+						#st.write(ratio, j)
+						pg_finder[ratio] = j
+						all_ratio.append(ratio)
 
-				final_pred = contract[k:e+1]
-				final_pred = final_pred.replace("\t", " ").replace("\r", "").replace("\n", " ")
+					max_ratio = max(all_ratio)
+					val = pg_finder[max_ratio]
+					k = val
+					#st.write(contract[val:val+5])
+					if contract[val-1] != '.' and contract[val] != '.':
+						while True:
+							if contract[k] == '.':
+								break
+							else:
+								k -= 1
+						k += 1
+					e = val + len(predictions[p])
+					if contract[val+len(predictions[p])] != '.' and contract[val+len(predictions[p])+1] != '.':
+						while True:
+							if contract[e] == '.':
+								break
+							e += 1
 
-# 			contract_check = re.sub(r'\n\s*\n', '', contract)
-# 			contract_check = re.sub(' +', ' ', contract_check)
-# 			cleaned_p = re.sub(' +', ' ', predictions[p])
-# 			val = contract_check.find(cleaned_p)
-			#st.write(val)
-			for key, v in page_num.items():
-				if val <= key:
-					page = v
-					break
-					
-			#st.write(answer)
-			if len(predictions[p]) != 0:
-				st.write(str(i+1)+".\t"+f"Question: {question_set[int(p)]}\n\n\tAnswer: {predictions[p]}"+" (page number: "+str(page)+") \n\n ")
-			else:
-				st.write(
-					str(i + 1) + ".\t" + f"Question: {question_set[int(p)]}\n\n\tAnswer: Couldn't find the answer\n\n")
+					final_pred = contract[k:e+1]
+					final_pred = final_pred.replace("\t", " ").replace("\r", "").replace("\n", " ")
+
+	# 			contract_check = re.sub(r'\n\s*\n', '', contract)
+	# 			contract_check = re.sub(' +', ' ', contract_check)
+	# 			cleaned_p = re.sub(' +', ' ', predictions[p])
+	# 			val = contract_check.find(cleaned_p)
+				#st.write(val)
+				for key, v in page_num.items():
+					if val <= key:
+						page = v
+						break
+
+				#st.write(answer)
+				if len(predictions[p]) != 0:
+					st.write(str(i+1)+".\t"+f"Question: {question_set[int(p)]}\n\n\tAnswer: {predictions[p]}"+" (page number: "+str(page)+") \n\n ")
+				else:
+					st.write(str(i + 1) + ".\t" + f"Question: {question_set[int(p)]}\n\n\tAnswer: Couldn't find the answer\n\n")
 
 if st.session_state.boolean == True:
 	st.write("Prediction Stopped")
